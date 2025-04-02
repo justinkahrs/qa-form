@@ -60,6 +60,7 @@ export default function Home() {
       const responseText = await response.text();
       setMessage(responseText);
     } catch (error) {
+      console.error(error);
       setMessage("An error occurred.");
     }
     setUploading(false);
@@ -78,7 +79,11 @@ export default function Home() {
       <Typography variant="h4" component="h1" gutterBottom>
         Upload an Image
       </Typography>
-      <Box component="form" onSubmit={handleSubmit} sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      <Box
+        component="form"
+        onSubmit={handleSubmit}
+        sx={{ display: "flex", flexDirection: "column", gap: 2 }}
+      >
         <Paper
           elevation={dragActive ? 3 : 1}
           sx={{
@@ -100,7 +105,16 @@ export default function Home() {
           }}
         >
           {file ? (
-            <Box sx={{ display: "flex", alignItems: "center", border: "1px solid #ccc", borderRadius: 2, p: 1, backgroundColor: "#fff" }}>
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                border: "1px solid #ccc",
+                borderRadius: 2,
+                p: 1,
+                backgroundColor: "#fff",
+              }}
+            >
               <Box
                 component="img"
                 src={URL.createObjectURL(file)}
@@ -115,7 +129,9 @@ export default function Home() {
               <Typography>{file.name}</Typography>
             </Box>
           ) : (
-            <Typography>Drag &amp; drop an image here or click to select file</Typography>
+            <Typography>
+              Drag &amp; drop an image here or click to select file
+            </Typography>
           )}
         </Paper>
         <input
@@ -141,7 +157,7 @@ export default function Home() {
               fontFamily: "inherit",
               fontSize: "1rem",
               borderColor: "#ccc",
-              borderRadius: "4px"
+              borderRadius: "4px",
             }}
           />
           <Button variant="outlined" onClick={handleCopy} sx={{ mt: 1 }}>

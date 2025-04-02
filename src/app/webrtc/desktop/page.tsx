@@ -13,6 +13,15 @@ import {
   TextField,
 } from "@mui/material";
 
+/**
+ * Desktop side:
+ * 1) Generate sessionId, createOffer, setLocalDescription -> POST to /api/webrtc
+ * 2) Poll for phone's answer. Once we see an answer, setRemoteDescription.
+ * 3) On ICE candidate => POST to /api/webrtc with role=desktop
+ * 4) Poll for phone's ICE candidates. Add them to our PC.
+ * 5) When phone connects, stream arrives on remoteStream => show on videoRef
+ */
+
 export default function Desktop() {
   const [sessionId, setSessionId] = useState("");
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
@@ -20,13 +29,19 @@ export default function Desktop() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [connected, setConnected] = useState(false);
 
   // For capturing
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [capturedImage, setCapturedImage] = useState("");
 
   // For uploading
   const [uploading, setUploading] = useState(false);
   const [responseText, setResponseText] = useState("");
+
+  // Polling intervals
+  const candidatesPollRef = useRef<NodeJS.Timer | null>(null);
+  const answerPollRef = useRef<NodeJS.Timer | null>(null);
 
   useEffect(() => {
     const newPc = new RTCPeerConnection({
@@ -40,11 +55,31 @@ export default function Desktop() {
       }
     };
 
-    // Collect ICE candidates automatically
+    // Collect ICE candidates and send to server
     newPc.onicecandidate = async (event) => {
       if (event.candidate) {
-        // In production you would send these to the phone, too.
-        // For brevity, we skip ICE exchange. Some local networks still allow connection.
+        try {
+          await fetch("/api/webrtc", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              sessionId,
+              candidate: event.candidate.toJSON(),
+              role: "desktop",
+            }),
+          });
+        } catch (err) {
+          console.error("Error sending desktop ICE candidate", err);
+        }
+      }
+    };
+
+    newPc.onconnectionstatechange = () => {
+      if (
+        newPc.connectionState === "connected" ||
+        newPc.connectionState === "completed"
+      ) {
+        setConnected(true);
       }
     };
 
@@ -52,7 +87,10 @@ export default function Desktop() {
 
     return () => {
       newPc.close();
+      if (candidatesPollRef.current) clearInterval(candidatesPollRef.current);
+      if (answerPollRef.current) clearInterval(answerPollRef.current);
     };
+    // We intentionally don't list sessionId in deps so the PC doesn't get re-initialized
   }, []);
 
   useEffect(() => {
@@ -62,14 +100,15 @@ export default function Desktop() {
   }, [remoteStream]);
 
   const handleGenerateSession = async () => {
+    if (!pc) return;
     const newSessionId = uuidv4();
     setSessionId(newSessionId);
     setErrorMessage("");
-    if (!pc) return;
+    setConnected(false);
 
     try {
       // Create offer
-      const offer = await pc.createOffer();
+      const offer = await pc.createOffer({ offerToReceiveVideo: true });
       await pc.setLocalDescription(offer);
 
       // Send offer to server
@@ -82,21 +121,38 @@ export default function Desktop() {
         }),
       });
 
-      // Poll for answer in background
+      // Start polling for answer
       pollForAnswer(newSessionId, pc);
+
+      // Start polling for phone's ICE candidates
+      if (candidatesPollRef.current) {
+        clearInterval(candidatesPollRef.current);
+      }
+      candidatesPollRef.current = setInterval(
+        () => pollCandidates(newSessionId, pc, "phone"),
+        2000
+      );
     } catch (err) {
       console.error(err);
       setErrorMessage("Error creating or sending offer.");
     }
   };
 
-  const pollForAnswer = async (sId: string, pcRef: RTCPeerConnection) => {
+  const pollForAnswer = (sId: string, pcRef: RTCPeerConnection) => {
     setLoading(true);
     let attempts = 0;
-    let maxAttempts = 40;
+    const maxAttempts = 40;
 
-    while (attempts < maxAttempts) {
+    if (answerPollRef.current) clearInterval(answerPollRef.current);
+
+    answerPollRef.current = setInterval(async () => {
       attempts++;
+      if (attempts > maxAttempts) {
+        setLoading(false);
+        setErrorMessage("No answer received in time. Refresh and try again.");
+        if (answerPollRef.current) clearInterval(answerPollRef.current);
+        return;
+      }
       try {
         const res = await fetch(`/api/webrtc?sessionId=${sId}`);
         const data = await res.json();
@@ -105,19 +161,40 @@ export default function Desktop() {
           const remoteDesc = new RTCSessionDescription(data.answer);
           await pcRef.setRemoteDescription(remoteDesc);
           setLoading(false);
-          return;
+          if (answerPollRef.current) clearInterval(answerPollRef.current);
         }
-        // Wait 2 seconds between attempts
-        await new Promise((resolve) => setTimeout(resolve, 2000));
       } catch (err) {
         console.error("Poll error:", err);
         setErrorMessage("Error polling for phone's answer.");
         setLoading(false);
-        return;
+        if (answerPollRef.current) clearInterval(answerPollRef.current);
       }
+    }, 2000);
+  };
+
+  const pollCandidates = async (
+    sId: string,
+    pcRef: RTCPeerConnection,
+    side: "phone" | "desktop"
+  ) => {
+    try {
+      const res = await fetch(`/api/webrtc?sessionId=${sId}`);
+      const data = await res.json();
+      const candidatesKey =
+        side === "phone" ? "candidatesPhone" : "candidatesDesktop";
+      const candidates: RTCIceCandidateInit[] = data[candidatesKey] || [];
+      for (const c of candidates) {
+        try {
+          await pcRef.addIceCandidate(new RTCIceCandidate(c));
+        } catch (iceErr) {
+          console.error("Error adding ICE candidate:", iceErr);
+        }
+      }
+      // We could clear them from the server if we wanted, but for simplicity we keep them
+      // In a production app, you might PATCH the server to clear or mark them as used
+    } catch (err) {
+      console.error("Poll candidate error:", err);
     }
-    setLoading(false);
-    setErrorMessage("No answer received in time. Refresh and try again.");
   };
 
   const handleCapture = () => {
@@ -131,6 +208,8 @@ export default function Desktop() {
     if (!ctx) return;
 
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const imageUrl = canvas.toDataURL("image/png");
+    setCapturedImage(imageUrl);
   };
 
   const handleUpload = async () => {
@@ -176,7 +255,7 @@ export default function Desktop() {
         </Button>
       </Box>
 
-      {sessionId && (
+      {sessionId && !connected && (
         <Paper sx={{ p: 2, mb: 2 }}>
           <Typography variant="h6">Session ID</Typography>
           <TextField
@@ -192,7 +271,11 @@ export default function Desktop() {
             <QRCode
               value={
                 typeof window !== "undefined"
-                  ? `${window.location.origin}/webrtc/phone?sessionId=${sessionId}`
+                  ? `${
+                      process.env.NODE_ENV === "development"
+                        ? "https://192.168.1.39:3000"
+                        : window.location.origin
+                    }/webrtc/phone?sessionId=${sessionId}`
                   : ""
               }
             />
@@ -208,13 +291,21 @@ export default function Desktop() {
 
       {loading && <Alert severity="info">Waiting for phone’s answer...</Alert>}
 
+      {connected && (
+        <Alert severity="success" sx={{ mb: 2 }}>
+          Connection established! We are receiving the phone’s stream.
+        </Alert>
+      )}
+
       <Box mt={4} sx={{ display: remoteStream ? "block" : "none" }}>
         <Typography variant="h6" gutterBottom>
           Remote Video Stream
         </Typography>
+        {/* live video, so no captions here */}
         <video
           ref={videoRef}
           autoPlay
+          muted
           playsInline
           style={{ maxWidth: "100%", border: "1px solid #ccc" }}
         />
@@ -235,16 +326,24 @@ export default function Desktop() {
         style={{ display: "block", marginTop: "1rem", maxWidth: "100%" }}
       />
 
-      {canvasRef && (
+      <Box mt={2}>
+        <Button
+          variant="contained"
+          color="primary"
+          onClick={handleUpload}
+          disabled={!capturedImage || uploading}
+        >
+          {uploading ? "Uploading..." : "Upload Captured Image"}
+        </Button>
+      </Box>
+      {capturedImage && (
         <Box mt={2}>
-          <Button
-            variant="contained"
-            color="primary"
-            onClick={handleUpload}
-            disabled={uploading}
-          >
-            {uploading ? "Uploading..." : "Upload Captured Image"}
-          </Button>
+          <Typography variant="subtitle1">Preview:</Typography>
+          <img
+            src={capturedImage}
+            alt="Captured image preview"
+            style={{ maxWidth: "200px", border: "1px solid #ccc" }}
+          />
         </Box>
       )}
 

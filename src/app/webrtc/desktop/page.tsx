@@ -30,6 +30,7 @@ export default function Desktop() {
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [connected, setConnected] = useState(false);
+  const [showConnectedAlert, setShowConnectedAlert] = useState(false);
 
   // For capturing
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -80,6 +81,10 @@ export default function Desktop() {
         newPc.connectionState === "completed"
       ) {
         setConnected(true);
+        setShowConnectedAlert(true);
+        setTimeout(() => {
+          setShowConnectedAlert(false);
+        }, 5000);
       }
     };
 
@@ -246,14 +251,16 @@ export default function Desktop() {
   return (
     <Container sx={{ py: 3 }}>
       <Typography variant="h4" gutterBottom>
-        Desktop - WebRTC Receiver
+        Desktop Page
       </Typography>
 
-      <Box sx={{ mb: 2 }}>
-        <Button variant="contained" onClick={handleGenerateSession}>
-          Generate Session / Offer
-        </Button>
-      </Box>
+      {!connected && (
+        <Box sx={{ mb: 2 }}>
+          <Button variant="contained" onClick={handleGenerateSession}>
+            Connect to phone
+          </Button>
+        </Box>
+      )}
 
       {sessionId && !connected && (
         <Paper sx={{ p: 2, mb: 2 }}>
@@ -291,16 +298,13 @@ export default function Desktop() {
 
       {loading && <Alert severity="info">Waiting for phone’s answer...</Alert>}
 
-      {connected && (
+      {showConnectedAlert && (
         <Alert severity="success" sx={{ mb: 2 }}>
           Connection established! We are receiving the phone’s stream.
         </Alert>
       )}
 
       <Box mt={4} sx={{ display: remoteStream ? "block" : "none" }}>
-        <Typography variant="h6" gutterBottom>
-          Remote Video Stream
-        </Typography>
         {/* live video, so no captions here */}
         <video
           ref={videoRef}
@@ -311,42 +315,35 @@ export default function Desktop() {
         />
       </Box>
 
-      <Box mt={2}>
-        <Button
-          variant="contained"
-          onClick={handleCapture}
-          disabled={!remoteStream}
-        >
-          Capture Frame
-        </Button>
-      </Box>
+      {connected && (
+        <>
+          <Box mt={2}>
+            <Button
+              variant="contained"
+              onClick={handleCapture}
+              disabled={!remoteStream}
+            >
+              Capture Frame
+            </Button>
+          </Box>
 
-      <canvas
-        ref={canvasRef}
-        style={{ display: "block", marginTop: "1rem", maxWidth: "100%" }}
-      />
-
-      <Box mt={2}>
-        <Button
-          variant="contained"
-          color="primary"
-          onClick={handleUpload}
-          disabled={!capturedImage || uploading}
-        >
-          {uploading ? "Uploading..." : "Upload Captured Image"}
-        </Button>
-      </Box>
-      {capturedImage && (
-        <Box mt={2}>
-          <Typography variant="subtitle1">Preview:</Typography>
-          <img
-            src={capturedImage}
-            alt="Captured image preview"
-            style={{ maxWidth: "200px", border: "1px solid #ccc" }}
+          <canvas
+            ref={canvasRef}
+            style={{ display: "block", marginTop: "1rem", maxWidth: "100%" }}
           />
-        </Box>
-      )}
 
+          <Box mt={2}>
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={handleUpload}
+              disabled={!capturedImage || uploading}
+            >
+              {uploading ? "Uploading..." : "Upload Captured Image"}
+            </Button>
+          </Box>
+        </>
+      )}
       {responseText && (
         <Paper sx={{ p: 2, mt: 2 }}>
           <Typography variant="body2">{responseText}</Typography>

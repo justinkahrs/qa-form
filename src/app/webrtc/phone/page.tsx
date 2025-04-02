@@ -1,16 +1,17 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { Container, Typography, Box, Alert, Button } from "@mui/material";
 
 /**
  * Phone side:
- * 1) Attempt to retrieve the Desktop's offer from /api/webrtc?sessionId=xxx
- * 2) Once we have the offer, setRemoteDescription(offer), createAnswer => setLocalDescription(answer) => PATCH to /api/webrtc
+ * 1) If there's a sessionId, automatically retrieve the Desktop's offer, setRemoteDescription -> createAnswer -> setLocalDescription -> PATCH to server
+ * 2) If no sessionId, optionally let user open the camera just for scanning or local usage
  * 3) On ICE candidate => POST to /api/webrtc with role=phone
- * 4) Poll for the desktop’s ICE candidates with a setInterval
+ * 4) Poll for the Desktop’s ICE candidates with a setInterval
  * 5) Show local preview, so user sees their own camera feed
+ * 6) Once the local preview is showing, hide all other UI
  */
 
 export default function PhonePage() {
@@ -20,11 +21,11 @@ export default function PhonePage() {
   const [pc, setPc] = useState<RTCPeerConnection | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
   const [connected, setConnected] = useState(false);
-  const [webcamEnabled, setWebcamEnabled] = useState(false);
-  const videoRef = React.useRef<HTMLVideoElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
 
-  const candidatesPollRef = React.useRef<NodeJS.Timer | null>(null);
+  // Polling reference for ICE candidates
+  const candidatesPollRef = useRef<NodeJS.Timer | null>(null);
 
   useEffect(() => {
     const newPc = new RTCPeerConnection({
@@ -69,21 +70,18 @@ export default function PhonePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // If there's a sessionId, automatically start the camera to connect
+  useEffect(() => {
+    if (sessionId && pc && !localStream) {
+      void handleStartCamera();
+    }
+  }, [sessionId, pc, localStream]);
+
   useEffect(() => {
     if (localStream && videoRef.current) {
       videoRef.current.srcObject = localStream;
     }
   }, [localStream]);
-
-  // On enabling the webcam, try connecting
-  useEffect(() => {
-    if (webcamEnabled) {
-      (async () => {
-        await handleStartCamera();
-      })();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [webcamEnabled]);
 
   const handleStartCamera = async () => {
     setErrorMessage("");
@@ -98,17 +96,20 @@ export default function PhonePage() {
         audio: false,
       });
       setLocalStream(stream);
+
       // Add tracks to PeerConnection
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
       // If we have a sessionId, that means we have a desktop offer
       if (sessionId) {
-        // First, get the desktop's offer
+        // Fetch the desktop's offer
         const response = await fetch(`/api/webrtc?sessionId=${sessionId}`);
         const data = await response.json();
 
         if (!data.offer) {
-          setErrorMessage("No offer found. Make sure Desktop created a session.");
+          setErrorMessage(
+            "No offer found. Make sure Desktop created a session."
+          );
           return;
         }
 
@@ -166,39 +167,34 @@ export default function PhonePage() {
 
   return (
     <Container sx={{ py: 4 }}>
-      <Typography variant="h4" gutterBottom>
-        Phone - WebRTC Sender
-      </Typography>
       {errorMessage && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {errorMessage}
         </Alert>
       )}
-      {!connected ? (
+      {!localStream ? (
+        // If we don't have localStream yet
         <>
-          <Typography>
-            {sessionId ? (
-              <>
-                Session ID: <strong>{sessionId}</strong>
-              </>
-            ) : (
-              "No Session ID. Open the camera to scan the Desktop QR code."
-            )}
+          <Typography variant="h4" gutterBottom>
+            Phone Page
           </Typography>
-          <Box mt={2}>
-            <Button variant="contained" onClick={() => setWebcamEnabled(true)}>
-              {sessionId ? "Start Camera and Send Stream" : "Open Camera"}
-            </Button>
-          </Box>
+          {/* Show a fallback if there's no session ID */}
+          {!sessionId && (
+            <>
+              <Typography>
+                No Session ID. You can still open your camera if needed.
+              </Typography>
+              <Box mt={2}>
+                <Button variant="contained" onClick={() => handleStartCamera()}>
+                  Open Camera
+                </Button>
+              </Box>
+            </>
+          )}
         </>
       ) : (
-        <Alert severity="success">
-          Connection Established. Your camera stream is sent to the Desktop.
-        </Alert>
-      )}
-      {localStream && (
-        <Box mt={2}>
-          <Typography variant="h6">Local Preview</Typography>
+        // Once localStream is available, show only the local preview
+        <Box>
           <video
             ref={videoRef}
             autoPlay
@@ -207,6 +203,11 @@ export default function PhonePage() {
             style={{ maxWidth: "100%", border: "1px solid #ccc" }}
           />
         </Box>
+      )}
+      {connected && (
+        <Alert severity="success" sx={{ mt: 2 }}>
+          Connection Established. Your camera stream is sent to the Desktop.
+        </Alert>
       )}
     </Container>
   );

@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Container from "@mui/material/Container";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
@@ -18,6 +18,29 @@ export default function Home() {
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState("");
   const [copyButtonText, setCopyButtonText] = useState("Copy Response");
+
+  // Listen for paste events to support pasting images from the clipboard
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      if (e.clipboardData?.items) {
+        const items = e.clipboardData.items;
+        for (let i = 0; i < items.length; i++) {
+          if (items[i].type.indexOf("image") !== -1) {
+            const blob = items[i].getAsFile();
+            if (blob) {
+              setFile(blob);
+              break;
+            }
+          }
+        }
+      }
+    };
+
+    window.addEventListener("paste", handlePaste);
+    return () => {
+      window.removeEventListener("paste", handlePaste);
+    };
+  }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -72,12 +95,18 @@ export default function Home() {
   };
 
   const handleCopy = () => {
-    const rows = message.split("\n").filter(line => line.trim() !== "");
+    const rows = message.split("\n").filter((line) => line.trim() !== "");
     if (rows.length > 1) {
       // Skip the header row
-      const dataRows = rows.slice(1).map(row =>
-        row.split(",").map(cell => cell.trim()).join("\t")
-      ).join("\n");
+      const dataRows = rows
+        .slice(1)
+        .map((row) =>
+          row
+            .split(",")
+            .map((cell) => cell.trim())
+            .join("\t")
+        )
+        .join("\n");
       navigator.clipboard.writeText(dataRows);
     } else {
       navigator.clipboard.writeText(message);
@@ -89,18 +118,24 @@ export default function Home() {
   };
 
   // Parse CSV response: first line is header, rest are data rows.
-  const rows = message.split("\n").filter(line => line.trim() !== "");
-  const header = rows.length > 0 ? rows[0].split(",").map(cell => cell.trim()) : [];
-  const dataRows = rows.length > 1 ? rows.slice(1).map(row =>
-    row.split(",").map(cell => cell.trim())
-  ) : [];
+  const rows = message.split("\n").filter((line) => line.trim() !== "");
+  const header =
+    rows.length > 0 ? rows[0].split(",").map((cell) => cell.trim()) : [];
+  const dataRows =
+    rows.length > 1
+      ? rows.slice(1).map((row) => row.split(",").map((cell) => cell.trim()))
+      : [];
 
   return (
     <Container sx={{ py: 4 }}>
       <Typography variant="h4" component="h1" gutterBottom>
         Upload an Image
       </Typography>
-      <Box component="form" onSubmit={handleSubmit} sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      <Box
+        component="form"
+        onSubmit={handleSubmit}
+        sx={{ display: "flex", flexDirection: "column", gap: 2 }}
+      >
         <Paper
           elevation={dragActive ? 3 : 1}
           sx={{
@@ -122,7 +157,16 @@ export default function Home() {
           }}
         >
           {file ? (
-            <Box sx={{ display: "flex", alignItems: "center", border: "1px solid #ccc", borderRadius: 2, p: 1, backgroundColor: "#fff" }}>
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                border: "1px solid #ccc",
+                borderRadius: 2,
+                p: 1,
+                backgroundColor: "#fff",
+              }}
+            >
               <Box
                 component="img"
                 src={URL.createObjectURL(file)}
@@ -137,7 +181,10 @@ export default function Home() {
               <Typography>{file.name}</Typography>
             </Box>
           ) : (
-            <Typography>Drag &amp; drop an image here or click to select file</Typography>
+            <Typography>
+              Drag &amp; drop an image here, click to select file, or paste an
+              image
+            </Typography>
           )}
         </Paper>
         <input
@@ -158,14 +205,17 @@ export default function Home() {
               <TableHead>
                 <TableRow>
                   {header.map((cell, index) => (
+                    // biome-ignore lint/suspicious/noArrayIndexKey: <explanation>
                     <TableCell key={index}>{cell}</TableCell>
                   ))}
                 </TableRow>
               </TableHead>
               <TableBody>
                 {dataRows.map((row, rowIndex) => (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: <explanation>
                   <TableRow key={rowIndex}>
                     {row.map((cell, cellIndex) => (
+                      // biome-ignore lint/suspicious/noArrayIndexKey: <explanation>
                       <TableCell key={cellIndex}>{cell}</TableCell>
                     ))}
                   </TableRow>

@@ -5,7 +5,12 @@ import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Paper from "@mui/material/Paper";
 import Button from "@mui/material/Button";
-import TextareaAutosize from "@mui/material/TextareaAutosize";
+import Table from "@mui/material/Table";
+import TableBody from "@mui/material/TableBody";
+import TableCell from "@mui/material/TableCell";
+import TableContainer from "@mui/material/TableContainer";
+import TableHead from "@mui/material/TableHead";
+import TableRow from "@mui/material/TableRow";
 
 export default function Home() {
   const [file, setFile] = useState<File | null>(null);
@@ -67,23 +72,35 @@ export default function Home() {
   };
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(message);
+    const rows = message.split("\n").filter(line => line.trim() !== "");
+    if (rows.length > 1) {
+      // Skip the header row
+      const dataRows = rows.slice(1).map(row =>
+        row.split(",").map(cell => cell.trim()).join("\t")
+      ).join("\n");
+      navigator.clipboard.writeText(dataRows);
+    } else {
+      navigator.clipboard.writeText(message);
+    }
     setCopyButtonText("Copied!");
     setTimeout(() => {
       setCopyButtonText("Copy Response");
     }, 3000);
   };
 
+  // Parse CSV response: first line is header, rest are data rows.
+  const rows = message.split("\n").filter(line => line.trim() !== "");
+  const header = rows.length > 0 ? rows[0].split(",").map(cell => cell.trim()) : [];
+  const dataRows = rows.length > 1 ? rows.slice(1).map(row =>
+    row.split(",").map(cell => cell.trim())
+  ) : [];
+
   return (
     <Container sx={{ py: 4 }}>
       <Typography variant="h4" component="h1" gutterBottom>
         Upload an Image
       </Typography>
-      <Box
-        component="form"
-        onSubmit={handleSubmit}
-        sx={{ display: "flex", flexDirection: "column", gap: 2 }}
-      >
+      <Box component="form" onSubmit={handleSubmit} sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
         <Paper
           elevation={dragActive ? 3 : 1}
           sx={{
@@ -105,16 +122,7 @@ export default function Home() {
           }}
         >
           {file ? (
-            <Box
-              sx={{
-                display: "flex",
-                alignItems: "center",
-                border: "1px solid #ccc",
-                borderRadius: 2,
-                p: 1,
-                backgroundColor: "#fff",
-              }}
-            >
+            <Box sx={{ display: "flex", alignItems: "center", border: "1px solid #ccc", borderRadius: 2, p: 1, backgroundColor: "#fff" }}>
               <Box
                 component="img"
                 src={URL.createObjectURL(file)}
@@ -129,9 +137,7 @@ export default function Home() {
               <Typography>{file.name}</Typography>
             </Box>
           ) : (
-            <Typography>
-              Drag &amp; drop an image here or click to select file
-            </Typography>
+            <Typography>Drag &amp; drop an image here or click to select file</Typography>
           )}
         </Paper>
         <input
@@ -147,19 +153,26 @@ export default function Home() {
       </Box>
       {message && (
         <>
-          <TextareaAutosize
-            value={message}
-            readOnly
-            style={{
-              width: "100%",
-              marginTop: "16px",
-              padding: "8px",
-              fontFamily: "inherit",
-              fontSize: "1rem",
-              borderColor: "#ccc",
-              borderRadius: "4px",
-            }}
-          />
+          <TableContainer component={Paper} sx={{ mt: 2 }}>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  {header.map((cell, index) => (
+                    <TableCell key={index}>{cell}</TableCell>
+                  ))}
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {dataRows.map((row, rowIndex) => (
+                  <TableRow key={rowIndex}>
+                    {row.map((cell, cellIndex) => (
+                      <TableCell key={cellIndex}>{cell}</TableCell>
+                    ))}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
           <Button variant="outlined" onClick={handleCopy} sx={{ mt: 1 }}>
             {copyButtonText}
           </Button>
